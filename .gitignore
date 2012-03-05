@@ -5,3 +5,6 @@ dist/
 nbdist/
 nbactions.xml
 nb-configuration.xml
+private.properties
+project.properties
+project.xml
