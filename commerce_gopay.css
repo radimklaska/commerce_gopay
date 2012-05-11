@@ -1,10 +1,10 @@
-.uc-gopay-channels {
+.commerce-gopay-channels {
   border: 1px solid #3FADD8;
   height: 21px;
   display: inline-block;
 }
 
-#edit-panes-payment-payment-method .uc-gopay-channels {
+#edit-panes-payment-payment-method .commerce-gopay-channels {
 	margin-top: 0.5em;
 	margin-bottom: 0.7em;
 }
@@ -17,7 +17,7 @@
   padding: 0 3px;
 }
 
-#edit-uc-gopay-list-methods .gopay-icon {
+#edit-commerce-gopay-list-methods .gopay-icon {
   padding: 0;
 }
 

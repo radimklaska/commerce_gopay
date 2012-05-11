@@ -2,14 +2,17 @@
 
 /**
  * @file
- * UC GoPay - Ubercart payment module.
+ * Commerce GoPay - Drupal Commerce payment module.
  *
- * @author Vojtěch Kusý <wojtha@gmail.com>
+ * @author Vojtěch Kusý <wojtha@gmail.com> - http://drupal.org/project/uc_gopay
+ * @author Radim Klaška <radim@klaska.net> - http://drupal.org/project/commerce_gopay (port from uc_gopay)
  *
  * @copyright Vojtěch Kusý, Atomic Ant Ltd. http://atomicant.co.uk
+ * @copyright Radim Klaška, http://klaska.net
  *
- * Development sponsored by Štěpán Korčák, http://stepankorcak.cz
+ * uc_gopay development sponsored by Štěpán Korčák, http://stepankorcak.cz
  */
+
 
 //=============================================================================
 //= CONSTANTS
@@ -24,12 +27,14 @@ define('commerce_gopay_CURRENCY', 'CZK');
 /**
  * Name of the payment method.
  */
-define('commerce_gopay_STANDARD_PAYMENT_METHOD', 'gopay_wps');
+define('commerce_gopay_STANDARD_PAYMENT_METHOD', 'gopay');
 
 /**
  * Registration email.
  */
-define('commerce_gopay_REGISTRATION_EMAIL', 'gopay@stepankorcak.cz');
+// define('commerce_gopay_REGISTRATION_EMAIL', 'gopay@stepankorcak.cz');
+//ToDo: Before going live, check if I can actualy do this:
+define('commerce_gopay_REGISTRATION_EMAIL', 'gopay@klaska.net'); 
 
 
 //=============================================================================
@@ -38,10 +43,77 @@ define('commerce_gopay_REGISTRATION_EMAIL', 'gopay@stepankorcak.cz');
 
 
 /**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_gopay_commerce_payment_method_info() {
+  $payment_methods = array();
+
+  // ToDo:
+  // $icons = commerce_paypal_icons();
+  // $display_title = t('!logo PayPal - pay securely without sharing your financial information', array('!logo' => $icons['paypal']));
+  // $display_title .= '<div class="commerce-paypal-icons"><span class="label">' . t('Includes:') . '</span>' . implode(' ', $icons) . '</div>';
+
+  $payment_methods['gopay'] = array(
+    // base (optional):
+    // string used as the base for callback names, each of which will be defaulted to [base]_[callback] unless explicitly set;
+    // defaults to the method_id if not set.
+    'base' => 'commerce_gopay',
+    'title' => t('GoPay'), 
+    // 'display_title' => $display_title,
+    'description' => t('GoPay Website Payments Standard'),
+    // terminal (optional):
+    // TRUE or FALSE indicating whether or not payments can be processed via this payment method
+    // through the administrative payment terminal on an order’s Payment tab;
+    // defaults to TRUE.
+    'terminal' => FALSE,
+    // offsite (optional):
+    // TRUE or FALSE indicating whether or not the customer must be redirected offsite
+    // to put in their payment information; used specifically by the off-site payment redirect checkout pane;
+    // defaults to FALSE.
+    'offsite' => TRUE,
+    // offsite_autoredirect (optional):
+    // TRUE or FALSE indicating whether or not the customer should be automatically redirected
+    // to an offsite payment site on the payment step of checkout;
+    // defaults to FALSE.
+    'offsite_autoredirect' => TRUE,
+    // active (optional): 
+    // TRUE of FALSE indicating whether or not the default payment method rule configuration
+    // for this payment method should be enabled by default;
+    // defaults to FALSE 
+    'active' => TRUE,
+    // callbacks (optional):
+    // an array of callback function names for the various types of callback required for all the payment method operations, arguments per callback in parentheses:
+      // settings_form:
+      // the name of the CALLBACK_commerce_payment_method_settings_form() of the payment method. 
+      // submit_form:
+      // the name of the CALLBACK_commerce_payment_method_submit_form() of the payment method. 
+      // submit_form_validate:
+      // the name of the CALLBACK_commerce_payment_method_submit_form_validate() of the payment method. 
+      // submit_form_submit:
+      // the name of the CALLBACK_commerce_payment_method_submit_form_submit() of the payment method. 
+      // redirect_form:
+      // the name of the CALLBACK_commerce_payment_method_redirect_form() of the payment method. 
+      // redirect_form_validate:
+      // the name of the CALLBACK_commerce_payment_method_redirect_form_validate() of the payment method. 
+      // redirect_form_submit:
+      // the name of the CALLBACK_commerce_payment_method_redirect_form_submit() of the payment method. 
+    // file (optional):
+    // the filepath of an include file relative to the method's module containing the callback functions for this method,
+    // allowing modules to store payment method code in include files that only get loaded when necessary (like the menu item file property).
+  );
+    
+  return $payment_methods;
+}
+
+/**
 * Implements hook_init();
 */
 function commerce_gopay_init() {
-  GopayConfig::init(commerce_gopay_setting('server'));
+  //TODO: move this somewhere else OR get value from $settings
+  GopayConfig::init(GopayConfig::TEST);
+  //dpm(_settings());
+  dpm(variable_get('commerce_gopay_dev'), 'dev init variable');
+  
 }
 
 /**
@@ -50,7 +122,7 @@ function commerce_gopay_init() {
 function commerce_gopay_menu() {
   $items = array();
 
-  $items['cart/gopay/payment_success'] = array(
+  $items['checkout/gopay/payment_success'] = array(
     'title' => 'Payment success',
     'page callback' => 'commerce_gopay_payment_success',
     'access arguments' => array('access content'),
@@ -58,7 +130,7 @@ function commerce_gopay_menu() {
     'file' => 'commerce_gopay.pages.inc',
   );
 
-  $items['cart/gopay/payment_failed'] = array(
+  $items['checkout/gopay/payment_failed'] = array(
     'title' => 'Payment failed',
     'page callback' => 'commerce_gopay_payment_failed',
     'access arguments' => array('access content'),
@@ -73,58 +145,423 @@ function commerce_gopay_menu() {
     'type' => MENU_CALLBACK,
     'file' => 'commerce_gopay.pages.inc',
   );
-
-  $items['admin/store/settings/payment/method/gopay_wps/list_methods'] = array(
-    'title' => 'Gopay Payment Channels',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('commerce_gopay_payment_methods_list'),
-    'access arguments' => array('administer store'),
-    'type' => MENU_CALLBACK,
-    'file' => 'commerce_gopay.pages.inc',
-  );
-
-  $items['admin/store/settings/payment/method/gopay_wps/register'] = array(
+  
+  $items['admin/commerce/config/payment-methods/manage/commerce_payment_gopay/register'] = array(
     'title' => 'Module registration',
     'description' => t('Optional module registration'),
     'page callback' => 'drupal_get_form',
-    'page arguments' => array('commerce_gopay_registry_form'),
+    'page arguments' => array('commerce_gopay_registration_form'),
     'access arguments' => array('administer store'),
     'type' => MENU_CALLBACK,
-    'file' => 'commerce_gopay.pages.inc',
+    'file' => 'commerce_gopay.pages.registration.inc',
   );
 
   return $items;
 }
 
 /**
- * Implements hook_form_FORM_ID_alter() for uc_cart_checkout_form().
+ * Payment method callback: settings form.
+ *
+ * Returns form elements for the payment method's settings form included
+ * as part of the payment method's enabling action in Rules
  */
-function commerce_gopay_form_uc_cart_checkout_form_alter(&$form, &$form_state, $form_id) {
-  // Check if the order is in the right currency.
-  if (isset($form['panes']['payment']['payment_method']['#options']['gopay_wps'])) {
-    $order =& $form['panes']['payment']['line_items']['#order'];
-    if ($order->currency != commerce_gopay_CURRENCY) {
-      unset($form['panes']['payment']['payment_method']['#options']['gopay_wps']);
+function commerce_gopay_settings_form($settings = NULL) {
+  $form = array();
+  
+  // load default settings
+  $settings = (array) $settings + commerce_gopay_default_settings();
+    
+  // Get and cache or get from cache all available channels
+  $settings['all_channels'] = cache_get('commerce_gopay_channel_list:all');
+  if (!$settings['all_channels']) {
+    $settings['all_channels'] = array();
+    $payment_method_list = GopaySoap::paymentMethodList();
+    foreach ($payment_method_list as &$payment_method) {
+      $pm = new stdClass();
+      $pm->logo = $payment_method->logo;
+      $pm->paymentMethod = $payment_method->paymentMethod;
+      $pm->code = $payment_method->code;
+      $pm->offline = $payment_method->offline;
+      $settings['all_channels'][$payment_method->code] = $pm;
     }
+    // 10 minutes = 600 seconds
+    $expire = REQUEST_TIME + 10;
+    cache_set('commerce_gopay_channel_list:all', $settings['all_channels'], $expire);
   }
+
+  
+  // Get enabled channels
+  if (!$settings['enabled_channels']) {
+    $settings['enabled_channels'] = $settings['all_channels'];
+    $settings['all_channels'] = array_filter($settings['all_channels']);
+    $settings['enabled_channels'] =  array_intersect_key($payment_method_list, $settings['all_channels']);
+  }  
+  
+  // Prepare data for table with all channels
+  $header = array(t('Logo'), t('Payment method'), t('Code'), t('Offline'));
+  foreach ($settings['all_channels'] as &$payment_method) {
+    $row = array();
+    $row[] = '<img src="' . $payment_method->logo . '">';
+    $row[] = $payment_method->paymentMethod;
+    $row[] = $payment_method->code;
+    $row[] = ($payment_method->offline == 1) ? t('yes') : t('no');
+    $options[$payment_method->code] = $row;
+  }
+  
+  // The form itself
+  $form['registration'] = array(
+    '#type' => 'item',
+    '#title' => t('Optional module registration'),
+    '#markup' => $settings['registration'] ?
+      t("Done. Thank you for your support! Do you want to <a href='@register-url'>change something</a>?", array('@register-url' => url('admin/commerce/config/payment-methods/manage/commerce_payment_gopay/register'))) :
+      t("You haven't <a href='@register-url'>registered the site</a> yet.", array('@register-url' => url('admin/commerce/config/payment-methods/manage/commerce_payment_gopay/register'))),
+  );
+
+  $form['notify_url'] = array(
+    '#type' => 'item',
+    '#title' => t('Notification URL'),
+    '#markup' => '<pre>' . url('soap/gopay/notify', array('absolute' => TRUE)) . '</pre><div class="description">' . t('Use this URL as the notification URL during the GoPay registration process.') . '</div>',
+  );
+
+  $form['goid'] = array(
+    '#type' => 'textfield',
+    '#title' => t('GoId'),
+    '#description' => t('The GoPay ID of the GoPay account you want to receive payments.'),
+    '#default_value' => $settings['goid'],
+  );
+
+  $form['secret'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Secret'),
+    '#description' => t('The GoPay secret of the GoPay account you want to receive payments.'),
+    '#default_value' => $settings['secret'],
+  );
+
+  $form['server'] = array(
+    '#type' => 'select',
+    '#title' => t('GoPay server'),
+    '#description' => t('Sign up for and use a Sandbox account for testing.'),
+    '#options' => array(
+      GopayConfig::TEST => ('Testing'),
+      GopayConfig::PROD => ('Production'),
+    ),
+    '#default_value' => $settings['server'],
+  );
+
+  $form['debug'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show debug info in the logs.'),
+    '#default_value' => $settings['debug'],
+  );
+
+  $form['gateway'] = array(
+    '#type' => 'select',
+    '#title' => t('Interface'),
+    '#description' => t('Which method to use when communicating with the GoPay server. Currently only SOAP interface is supported.'),
+    '#options' => array(
+      'soap' => t('SOAP'),
+    ),
+    '#default_value' => $settings['gateway'],
+  );
+
+  $form['address'] = array(
+    '#type' => 'radios',
+    '#title' => t('Address selection'),
+    '#options' => array(
+      'billing' => t('Send billing address to GoPay.'),
+      'delivery' => t('Send shipping address to GoPay.'),
+    ),
+    '#default_value' => $settings['address'],
+  );
+
+  $form['checkout_button'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Order review submit button text'),
+    '#description' => t('Provide GoPay specific text for the submit button on the order review page.'),
+    '#default_value' => $settings['checkout_button'],
+  );
+
+  // ToDo: Can we merge following two tables into one?
+  $form['enabled_channels_title'] = array(
+    '#prefix' => '<label>',
+    '#markup' => t('Available payment channels'),
+    '#suffix' => '</label>',
+  );
+  $form['enabled_channels'] = array(
+    '#type' => 'tableselect',
+    '#header' => $header,
+    '#options' => $options,
+    '#empty' =>  t('Payment channels not available'),
+    '#multiple' => TRUE,
+    '#js_select' => TRUE,
+    '#default_value' => $settings['enabled_channels'],
+  );
+  
+  //ToDo: Preselected payment channel can be set to disabled channel (from above table)
+  $form['preselect_channel_title'] = array(
+    '#prefix' => '<label>',
+    '#markup' => t('Preselected payment channel'),
+    '#suffix' => '</label>',
+  );
+  $form['preselect_channel'] = array(
+    '#type' => 'tableselect',
+    '#header' => $header,
+    '#options' => $options,
+    '#empty' =>  t('Payment channels not available'),
+    '#description' => t('This channel will be preselected when customer is redirected to the GoPay gateway.'),
+    '#multiple' => FALSE,
+    '#js_select' => FALSE,
+    '#default_value' => $settings['preselect_channel'],
+  );
+  
+  // Display warnings on payment method settings page
+  if ($settings['server'] === GopayConfig::TEST) {
+    drupal_set_message(t("Because you are using debug mode, all GoPay transaction will pass."), 'warning');
+  }
+  if (!$settings['enabled_channels']) {
+    drupal_set_message(t("GoPay payment method is enabled on checkout, but there is no allowed payment channels. Allow at least one channel to get rid of this warning." . ' ' . l(t('Payment channels list'),'admin/commerce/config/payment-methods/manage/commerce_payment_gopay/list_methods')), 'warning');
+  }
+  if (!($settings['goid'] && $settings['secret'])) {
+    drupal_set_message(t("GoPay payment method is enabled, but GoPay ID or secret key isn't provided. Please provide GoPay ID and shared secret to get rid of this warning."), 'error');
+  }
+
+  return $form;
 }
 
 /**
- * Implements hook_theme();
+ * Payment method callback: adds a message and CSS to the submission form.
  */
-function commerce_gopay_theme($existing, $type, $theme, $path) {
-  return array(
-    'commerce_gopay_channels_separated' => array(
-      'variables' => array('channels' => NULL, 'separator' => ', '),
-    ),
-    'commerce_gopay_channels_icons' => array(
-      'variables' => array('channels' => NULL, 'labels' => FALSE , 'separator' => ''),
-    ),
-    'commerce_gopay_channels_in_checkout' => array(
-      'variables' => array('channels' => NULL, 'labels' => FALSE , 'separator' => ''),
+function commerce_gopay_submit_form($payment_method, $pane_values, $checkout_pane, $order) {  
+  $form['gopay_information'] = array(
+    '#markup' => '<span class="commerce-paypal-wps-info">' . t('(Continue with checkout to complete payment via GoPay.)') . '</span>',
+    '#attached' => array(
+      'css' => array(drupal_get_path('module', 'commerce_gopay') . '/theme/commerce_gopay.css'),
     ),
   );
+  
+  return $form;
 }
+
+
+function commerce_gopay_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents) {
+  if ($order->commerce_order_total['und'][0]['currency_code'] != commerce_gopay_CURRENCY) {
+    if ($payment_method['settings']['debug'] == 1) {
+      watchdog('commerce_gopay',
+          t('Can\'t use currency other than %currency. <br><br> $_REQUEST = %request <br><br> $payment_method = %payment_method <br><br> $order = %order'),
+          array('%currency'=> commerce_gopay_CURRENCY,
+            '%request' => print_r($_REQUEST, TRUE),
+            '%payment_method' => print_r($payment_method, TRUE),
+            '%order' => print_r($order, TRUE)),
+          WATCHDOG_DEBUG);
+    }
+    drupal_set_message(t('Sorry, GoPay allows to pay only in %currency.', array('%currency'=> commerce_gopay_CURRENCY)), 'error');
+    return FALSE;
+  }
+}
+
+
+/**
+ * Payment method callback: redirect form, a wrapper around the module's general
+ *   use function for building a WPS form.
+ */
+
+function commerce_gopay_redirect_form($form, &$form_state, $order, &$payment_method) {
+  
+  // TODO: Why is $payment_method['settings'] empty?
+  // Return an error if the enabling action's settings haven't been configured.
+//  if (empty($payment_method['settings']['goid']) OR empty($payment_method['settings']['secret']) OR ($payment_method['settings']['server'] == GopayConfig::TEST)) {
+//    if ($payment_method['settings']['debug'] == 1) {
+//      watchdog('commerce_gopay',
+//          t('Tried to continue to payment, but GoPay is not configured for use. No GoPay ID or Secret has been specified. <br><br> $payment_method = %payment_method <br><br> $order = %order'),
+//          array('%payment_method' => print_r($payment_method, TRUE),
+//            '%order' => print_r($order, TRUE)),
+//          WATCHDOG_DEBUG);
+//    }
+//    drupal_set_message(t('GoPay is not configured for use. No GoPay ID or Secret has been specified.'), 'error');
+//    return FALSE;
+//  }
+
+//  $settings = array(
+//    // Return to the previous page when payment is canceled
+//    'cancel_return' => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+//
+//    // Return to the payment redirect page for processing successful payments
+//    'return' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+//
+//    // Specify the current payment method instance ID in the notify_url
+//    'payment_method' => $payment_method['instance_id'],
+//  );
+//  
+//  $payment_method['setting'] + $settings;
+  
+  variable_set('commerce_gopay_dev', array('TIME' => date('H:i:s d.m.Y', REQUEST_TIME), '$form' => $form, '$form_state' => $form_state, '$order' => $order, '$payment_method' => $payment_method));
+    
+  global $user;
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  // Get financial info
+  $currency_code = $wrapper->commerce_order_total->currency_code->value();
+  $amount = $wrapper->commerce_order_total->amount->value();
+  $customer_name = $wrapper->commerce_customer_billing->commerce_customer_address->name_line->value();
+
+//  // Build the data array that will be translated into hidden form values.
+//  // NOTE: keys should be uppercase for the SHA-1 security string
+//  $data = array(
+//    // General parameters
+//    'PSPID' => $settings['pspid'],
+//    'ORDERID' => $order->order_number,
+//    'AMOUNT' => $amount,
+//    'CURRENCY' => $currency_code,
+//    'LANGUAGE' => _commerce_ogone_get_language_code($settings),
+//    'CN' => $customer_name,
+//    'EMAIL' => $order->mail,
+//
+//    // Layout
+//    'TITLE' => t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE))))),
+//
+//    // Feedback URLs
+//    'ACCEPTURL' => $settings['return'],
+//    'DECLINEURL' => $settings['return'],
+//    'EXCEPTIONURL' => $settings['return'],
+//    'CANCELURL' => $settings['cancel_return'],
+//  );
+//
+//  // Allow modules to add or alter the data sent to Ogone before signing.
+//  drupal_alter('commerce_ogone_data', $data, $order, $settings);
+//
+//  // NOTE: data should be ordered alphabetically for the SHA-1 string
+//  ksort($data);
+//
+//  // Build the Ogone redirection URL.
+//  $url = variable_get('commerce_ogone_provider_url', 'https://secure.ogone.com/ncol/');
+//  $url .=  $settings['account'] . '/orderstandard_utf8.asp';
+//  $form['#action'] = $url;
+//
+//  // Generate SHA-1 security string & add hidden parameters to form
+//  $sha1_sig = '';
+//  $sha1suffix = $settings['sha_in'];
+//  foreach ($data as $name => $value) {
+//    if (!empty($value)) {
+//      $value = trim($value);
+//      // Build the SHA-1 string from all filled in parameters
+//      $sha1_sig .= $name . '=' . $value . $sha1suffix;
+//      // Add the value as a hidden form element
+//      $form[$name] = array('#type' => 'hidden', '#value' => $value);
+//    }
+//  }
+//  // Add the calculated SHA-1 string
+//  $form['SHASign'] = array('#type' => 'hidden', '#value' => sha1($sha1_sig));
+
+  $form['#action'] = 'http://klaska.net';
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Proceed with payment'),
+  );
+
+  return $form;
+}
+
+
+///**
+// * Payment method callback: redirect form, a wrapper around the module's general
+// *   use function for building a WPS form.
+// */
+//function commerce_gopay_redirect_form_submit($order, $payment_method) {
+//  
+//  variable_set('commerce_gopay_dev', array('TIME' => REQUEST_TIME, '$order' => $order, '$payment_method' => $payment_method));
+//  
+//  return $form;
+//}
+
+
+/**
+ * Builds a Website Payments Standard form from an order object.
+ *
+ * @param $order
+ *   The fully loaded order being paid for.
+ * @param $settings
+ *   An array of settings used to build out the form.
+ * @return
+ *   A renderable form array.
+ */
+function commerce_gopay_order_form($form, &$form_state, $order, $settings) {
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  $currency_code = $wrapper->commerce_order_total->currency_code->value();
+  $amount = $wrapper->commerce_order_total->amount->value();
+
+  // Ensure a default value for the payment_method setting.
+  $settings += array('payment_method' => '');
+
+  // Build the data array that will be translated into hidden form values.
+  $data = array(
+    // Specify the checkout experience to present to the user.
+    'cmd' => '_cart',
+
+    // Signify we're passing in a shopping cart from our system.
+    'upload' => 1,
+
+    // The store's PayPal e-mail address
+    'business' => $settings['business'],
+
+    // The path PayPal should send the IPN to
+    'notify_url' => commerce_paypal_ipn_url($settings['payment_method']),
+
+    // Set the correct character set
+    'charset' => 'utf-8',
+
+    // Do not display a comments prompt at PayPal
+    'no_note' => 1,
+
+    // Do not display a shipping address prompt at PayPal
+    'no_shipping' => 1,
+
+    // Return to the review page when payment is canceled
+    'cancel_return' => $settings['cancel_return'],
+
+    // Return to the payment redirect page for processing successful payments
+    'return' => $settings['return'],
+
+    // Return to this site with payment data in the POST
+    'rm' => 2,
+
+    // The type of payment action PayPal should take with this order
+    'paymentaction' => $settings['payment_action'],
+
+    // Set the currency and language codes
+    'currency_code' => in_array($currency_code, array_keys(commerce_paypal_wps_currencies())) ? $currency_code : $settings['currency_code'],
+    'lc' => $settings['language'],
+
+    // Use the timestamp to generate a unique invoice number
+    'invoice' => commerce_paypal_ipn_invoice($order),
+
+    // Define a single item in the cart representing the whole order
+    'amount_1' => round(commerce_currency_amount_to_decimal($amount, $currency_code), 2),
+    'item_name_1' => t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE))))),
+    'on0_1' => t('Product count'),
+    'os0_1' => commerce_line_items_quantity($wrapper->commerce_line_items, commerce_product_line_item_types()),
+  );
+
+  $form['#action'] = commerce_paypal_wps_server_url($settings['server']);
+
+  foreach ($data as $name => $value) {
+    if (!empty($value)) {
+      $form[$name] = array('#type' => 'hidden', '#value' => $value);
+    }
+  }
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Proceed to GoPay'),
+  );
+
+  return $form;
+}
+
+// TODO:
+//function commerce_gopay_requirements($phase) {
+//  // http://api.drupal.org/api/drupal/modules!system!system.api.php/function/hook_requirements/7
+//}
 
 /**
  * Implements hook_mail().
@@ -142,621 +579,43 @@ function commerce_gopay_mail($key, &$message, $params) {
                          'NAME: ' . check_plain($params['first_name']) . "\n" .
                          'SURNAME: ' . check_plain($params['second_name']) . "\n\n" .
                          'REGISTERED: ' . format_date($params['registered'], 'custom', 'Y-m-d H:i:s') . ' / ' . check_plain($params['registered']) . "\n" .
-                         'STATUS: ' . (commerce_gopay_setting('registration') ? 'UPDATE' : 'NEW');
+                         'STATUS: ' . (uc_gopay_setting('registration') ? 'UPDATE' : 'NEW');
     break;
   }
 }
 
-//=============================================================================
-//= Ubercart hooks
-//=============================================================================
-
-/**
- * Implements hook_uc_store_status().
- */
-function commerce_gopay_uc_store_status() {
-
-  if (_uc_payment_method_data('gopay_wps', 'checkout') && !(commerce_gopay_setting('goid') && commerce_gopay_setting('secret'))) {
-    $statuses[] = array(
-      'status' => 'error',
-      'title' => t('GoPay payment'),
-      'desc' => t("GoPay payment method is enabled, but GoPay ID or secret key isn't provided. Check the GoPay <a href='!gopay_url'>configuration</a>.", array('!gopay_url' => url('admin/store/settings/payment/method/gopay_wps'))),
-    );
-  }
-  else {
-    $statuses[] = array(
-      'status' => 'ok',
-      'title' => t('GoPay payment'),
-      'desc' => t('GoPay payment method is configured correctly.'),
-    );
-  }
-
-  if (commerce_gopay_setting('server') == GopayConfig::TEST) {
-    $statuses[] = array(
-      'status' => 'warning',
-      'title' => t('GoPay debug mode'),
-      'desc' => t("Because you are using debug mode, all GoPay transaction will pass. <a href='!gopay_url'>Disable the debug mode</a> on the live site!", array('!gopay_url' => url('admin/store/settings/payment/method/gopay_wps'))),
-    );
-  }
-
-  return $statuses;
-}
-
-/**
- * Implements hook_uc_payment_method().
- */
-function commerce_gopay_uc_payment_method() {
-  $methods = array();
-
-  $gopay_channels = commerce_gopay_channel_list_enabled();
-  $title1 = t('GoPay - pay without sharing your financial information.');
-  //$title2 = t('<b>Includes:</b> !channels', array('!channels' => theme('commerce_gopay_channels_icons', array('channels' => $gopay_channels))));
-  $title2 = theme('commerce_gopay_channels_in_checkout', array('channels' => $gopay_channels));
-
-  $methods[] = array(
-    'id' => commerce_gopay_STANDARD_PAYMENT_METHOD,
-    'name' => t('GoPay Website Payments'),
-    'title' => $title1 . '<br />' .  $title2,
-    'review' => t('GoPay'),
-    'desc' => t('Redirect users to submit payments through GoPay.'),
-    'callback' => 'commerce_gopay_method_gopay_wps',
-    'redirect' => 'commerce_gopay_wps_form',
-    'weight' => 1,
-    'checkout' => FALSE,
-    'no_gateway' => TRUE,
-  );
-
-  return $methods;
-}
 
 //=============================================================================
 //= Module functions
 //=============================================================================
 
-/**
- *
- * @param type $setting
- * @return type
- */
-function commerce_gopay_setting($setting) {
-  // TODO: convert to drupal_static()
-  static $config = NULL;
 
-  if (is_null($config)) {
-    $config = array(
-      'secret' => variable_get('commerce_gopay_wps_secret', ''),
-      'goid' => variable_get('commerce_gopay_wps_goid', ''),
-      'success_url' => url('cart/gopay/payment_success', array('absolute' => TRUE)),
-      'failed_url' => url('cart/gopay/payment_failed', array('absolute' => TRUE)),
-      'gateway' => variable_get('commerce_gopay_wps_gateway', 'soap'),
-      'debug' => variable_get('commerce_gopay_wps_debug', FALSE),
-      'server' => variable_get('commerce_gopay_wps_server', GopayConfig::TEST),
-      'preferred_channel' => variable_get('commerce_gopay_preffered_channel', 'cz_gp_w'),
-      'channels' => variable_get('commerce_gopay_enabled_channels', array('cz_gp_w')),
-      'checkout_button' => variable_get('commerce_gopay_wps_checkout_button', t('Submit Order')),
-      'address' => variable_get('commerce_gopay_wps_address', 'billing'),
-      'registration' => variable_get('commerce_gopay_registration', FALSE),
-      'registration_data' => variable_get('commerce_gopay_registration_data', array(
+/**
+ * Returns the default settings for the GoPay payment method.
+ */
+function commerce_gopay_default_settings() {
+  return array(
+    'secret' => '',
+    'goid' => '',
+    'success_url' => url('checkout/gopay/payment_success', array('absolute' => TRUE)),
+    'failed_url' => url('checkout/gopay/payment_failed', array('absolute' => TRUE)),
+    'gateway' => 'soap',
+    'debug' => TRUE, // Not sure. ToDo: Consult. Maybe set warning msg...
+    'server' => GopayConfig::TEST,
+    'preferred_channel' => 'cz_gp_w',
+    'all_channels' => '',
+    'enabled_channels' => '',
+    'checkout_button' => t('Submit Order'),
+    'address' => 'billing',
+    'registration' => variable_get('commerce_gopay_registration', FALSE),
+    'registration_data' => variable_get('commerce_gopay_registration_data', array(
                                'first_name' => '',
                                'second_name' => '',
                                'eshop_url' => '',
                                'email' => '',
                                'goid' => '',
                                'last_update' => '',
-                             )
-      ),
-      'preselect_channel' => variable_get('commerce_gopay_preselect_channel', ''),
-    );
-  }
-
-  return isset($config[$setting]) ? $config[$setting] : NULL;
-}
-
-/**
- * Handles the GoPay standard payment method.
- */
-function commerce_gopay_method_gopay_wps($op, &$order) {
-  switch ($op) {
-    case 'order-view':
-      $build = array();
-      $session_id = db_query("SELECT session_id FROM {uc_payment_gopay_pn} WHERE order_id = :id ORDER BY received ASC", array(':id' => $order->order_id))->fetchField();
-      if (empty($session_id)) {
-        $session_id = t('Unknown');
-      }
-
-      $build['#markup'] = t('Transaction ID:<br />@txn_id', array('@txn_id' => $session_id));
-      return $build;
-
-    case 'settings':
-      $form = array();
-
-      $enabled_channels = commerce_gopay_channel_list_enabled();
-      $form['commerce_gopay_list_methods'] = array(
-        '#type' => 'item',
-        '#title' => t('Enabled payment channels'),
-        '#markup' => theme('commerce_gopay_channels_icons', array('channels' => $enabled_channels, 'labels' => TRUE, 'separator' => ', ')) . '<br />' . l(t('Payment channels list'),'admin/store/settings/payment/method/gopay_wps/list_methods'),
-      );
-
-      // Build options list for the preselected channel setting.
-      $options = array();
-      $options[''] = t('None');
-      foreach ($enabled_channels as $channel) {
-        $options[$channel->code] = $channel->paymentMethod;
-      }
-
-      $form['commerce_gopay_preselect_channel'] = array(
-        '#type' => 'select',
-        '#title' => t('Preselected payment channel'),
-        '#options' => $options,
-        '#default_value' => commerce_gopay_setting('preselect_channel'),
-        '#description' => t('This channel will be preselected when customer is redirected to the GoPay gateway.')
-      );
-
-      $form['commerce_gopay_registration'] = array(
-        '#type' => 'item',
-        '#title' => t('Optional module registration'),
-        '#markup' => commerce_gopay_setting('registration') ?
-          t("Done. Thank you for your support! Do you want to <a href='@register-url'>change something</a>?", array('@register-url' => url('admin/store/settings/payment/method/gopay_wps/register'))) :
-          t("You haven't <a href='@register-url'>registered the site</a> yet.", array('@register-url' => url('admin/store/settings/payment/method/gopay_wps/register'))),
-      );
-
-      $form['commerce_gopay_notify_url'] = array(
-        '#type' => 'item',
-        '#title' => t('Notification URL'),
-        '#markup' => '<pre>' . url('soap/gopay/notify', array('absolute' => TRUE)) . '</pre><div class="description">' . t('Use this URL as the notification URL during the GoPay registration process.') . '</div>',
-      );
-
-      $form['commerce_gopay_wps_goid'] = array(
-        '#type' => 'textfield',
-        '#title' => t('GoId'),
-        '#description' => t('The GoPay ID of the GoPay account you want to receive payments.'),
-        '#default_value' => commerce_gopay_setting('goid'),
-      );
-
-      $form['commerce_gopay_wps_secret'] = array(
-        '#type' => 'textfield',
-        '#title' => t('Secret'),
-        '#description' => t('The GoPay secret of the GoPay account you want to receive payments.'),
-        '#default_value' => commerce_gopay_setting('secret'),
-      );
-
-      $form['commerce_gopay_wps_server'] = array(
-        '#type' => 'select',
-        '#title' => t('GoPay server'),
-        '#description' => t('Sign up for and use a Sandbox account for testing.'),
-        '#options' => array(
-          GopayConfig::TEST => ('Testing'),
-          GopayConfig::PROD => ('Production'),
-        ),
-        '#default_value' => commerce_gopay_setting('server'),
-      );
-
-      $form['commerce_gopay_wps_debug'] = array(
-        '#type' => 'checkbox',
-        '#title' => t('Show debug info in the logs.'),
-        '#default_value' => commerce_gopay_setting('debug'),
-      );
-
-      $form['commerce_gopay_wps_gateway'] = array(
-        '#type' => 'select',
-        '#title' => t('Interface'),
-        '#description' => t('Which method to use when communicating with the GoPay server. Currently only SOAP interface is supported.'),
-        '#options' => array(
-          'soap' => t('SOAP'),
-        ),
-        '#default_value' => commerce_gopay_setting('gateway'),
-      );
-
-      $form['commerce_gopay_wps_address'] = array(
-        '#type' => 'radios',
-        '#title' => t('Address selection'),
-        '#options' => array(
-          'billing' => t('Send billing address to GoPay.'),
-          'delivery' => t('Send shipping address to GoPay.'),
-        ),
-        '#default_value' => commerce_gopay_setting('address'),
-      );
-
-      $form['commerce_gopay_wps_checkout_button'] = array(
-        '#type' => 'textfield',
-        '#title' => t('Order review submit button text'),
-        '#description' => t('Provide GoPay specific text for the submit button on the order review page.'),
-        '#default_value' => commerce_gopay_setting('checkout_button'),
-      );
-
-      // Display warnings at payment method listing
-      if (empty($_POST) && _uc_payment_method_data('gopay_wps', 'checkout')) {
-        if (commerce_gopay_setting('server') === GopayConfig::TEST) {
-          drupal_set_message(t("Because you are using debug mode, all GoPay transaction will pass."), 'warning');
-        }
-        if (!commerce_gopay_channel_list_enabled()) {
-          drupal_set_message(t("GoPay payment method is enabled on checkout, but there is no allowed payment channels. Allow at least one channel to get rid of this warning."), 'warning');
-        }
-        if (!(commerce_gopay_setting('goid') && commerce_gopay_setting('secret'))) {
-          drupal_set_message(t("GoPay payment method is enabled, but GoPay ID or secret key isn't provided. Please provide GoPay ID and shared secret to get rid of this warning."), 'error');
-        }
-      }
-
-      return $form;
-  }
-}
-
-/**
- * Returns the form elements for the Website Payments Standard form.
- */
-function commerce_gopay_wps_form($form, &$form_state, $order) {
-  $shipping = 0;
-  foreach ($order->line_items as $item) {
-    if ($item['type'] == 'shipping') {
-      $shipping += $item['amount'];
-    }
-  }
-
-  $tax = 0;
-  if (module_exists('uc_taxes')) {
-    foreach (uc_taxes_calculate($order) as $tax_item) {
-      $tax += $tax_item->amount;
-    }
-  }
-
-  $address = commerce_gopay_setting('address');
-
-  $country_code = '';
-  $country = uc_get_country_data(array('country_id' => $order->{$address . '_country'}));
-  if ($country !== FALSE && isset($country[0]['country_iso_code_3'])) {
-    $country_code = $country[0]['country_iso_code_3'];
-  }
-
-  $phone = '';
-  for ($i = 0; $i < strlen($order->{$address . '_phone'}); $i++) {
-    if (is_numeric($order->{$address . '_phone'}[$i])) {
-      $phone .= $order->{$address . '_phone'}[$i];
-    }
-  }
-
-
-  $total_price_in_cents = round($order->order_total * 100);
-  $variable_symbol = $order->order_id . '-' . uc_cart_get_id();
-
-  $products = array();
-  foreach ($order->products as &$product) {
-    $products[] = trim($product->title);
-  }
-  $product_name = t('Order @order_id at !store: @products', array(
-    '@order_id' => $order->order_id,
-    '!store' => trim(variable_get('uc_store_name', url('<front>', array('absolute' => TRUE)))),
-    '@products' => implode(', ', $products),
-  ));
-  $product_name_short = _commerce_gopay_productname_shortener($product_name);
-
-  $street = $order->{$address . '_street1'};
-  if (!empty($order->{$address . '_street2'})) {
-    $street .= ' ' . $order->{$address . '_street2'};
-  }
-
-  $form_state['gopay'] = array(
-    'order_id' => $order->order_id,
-    'product_name' => $product_name_short,
-    'total_price' => $total_price_in_cents,
-    'variable_symbol' => $variable_symbol,
-    'first_name' => !empty($order->{$address . '_first_name'}) ? $order->{$address . '_first_name'} : '',
-    'last_name' => !empty($order->{$address . '_last_name'}) ? $order->{$address . '_last_name'} : '',
-    'city' => !empty($order->{$address . '_city'}) ? $order->{$address . '_city'} : '',
-    'street' => $street,
-    'postal_code' => !empty($order->{$address . '_postal_code'}) ? $order->{$address . '_postal_code'} : '',
-    'country_code' => $country_code,
-    'email' => !empty($order->primary_email) ? $order->primary_email : '',
-    'phone_number' => $phone,
+                           )),
+    'preselect_channel' => '',
   );
-
-  $form['actions'] = array('#type' => 'actions');
-  $form['actions']['submit'] = array(
-    '#type' => 'submit',
-    '#value' => commerce_gopay_setting('checkout_button'),
-  );
-
-  return $form;
-}
-
-/**
- * Submit handler for uc_paypal_ec_form().
- *
- * @see uc_paypal_ec_form()
- */
-function commerce_gopay_wps_form_submit($form, &$form_state) {
-  if (!empty($form_state['gopay'])) {
-    $payment =& $form_state['gopay'];
-    $goid = commerce_gopay_setting('goid');
-    $secret = commerce_gopay_setting('secret');
-    $success_url = commerce_gopay_setting('success_url');
-    $failed_url = commerce_gopay_setting('failed_url');
-
-    $payment_channels = array_keys(commerce_gopay_channel_list_enabled());
-
-    $payment_session_id = GopaySoap::createCustomerEshopPayment(
-      (float) $goid,
-      $payment['product_name'],
-      (int) $payment['total_price'],
-      $payment['variable_symbol'],
-      $success_url,
-      $failed_url,
-      $secret,
-      $payment_channels,
-      $payment['first_name'],
-      $payment['last_name'],
-      $payment['city'],
-      $payment['street'],
-      $payment['postal_code'],
-      $payment['country_code'],
-      $payment['email'],
-      $payment['phone_number']
-    );
-
-    $payment['session_id'] = $payment_session_id;
-
-    if ($payment_session_id > 0) {
-      commerce_gopay_record_save($payment);
-
-      $encrypted_signature = _commerce_gopay_signature($payment['session_id']);
-      header('Location: ' . GopayConfig::fullIntegrationURL() . "?sessionInfo.eshopGoId=" . commerce_gopay_setting('goid') . "&sessionInfo.paymentSessionId=" .  $payment['session_id'] . "&sessionInfo.encryptedSignature=" . $encrypted_signature . "&paymentChannel=" . commerce_gopay_setting('preselect_channel'));
-      exit;
-    }
-    else {
-      header('Location: ' . commerce_gopay_setting('failed_url') . "?description=" . GopayHelper::FAILED);
-      exit;
-    }
-  };
-}
-
-/**
- * Returns encrypted signature of the given arguments.
- */
-function _commerce_gopay_signature() {
-  $args = func_get_args();
-  $args = array_map('trim', $args);
-  $eshop_goid = commerce_gopay_setting('goid');
-  $secret = commerce_gopay_setting('secret');
-  $joined_args = $eshop_goid . '|' . implode('|', $args) . '|' . $secret;
-  return GopayHelper::encrypt(GopayHelper::hash($joined_args), $secret);
-}
-
-/**
- * Concat and trim given array of data.
- *
- * @param array $data
- * @return string
- */
-function _commerce_gopay_concat(array $data) {
-  return implode('|', array_map('trim', $data));
-}
-
-/**
- * Returns encrypted string using GoPay encryption method.
- *
- * @param string $data
- * @return string
- */
-function _commerce_gopay_encrypt($data) {
-  $secret = commerce_gopay_setting('secret');
-  return GopayHelper::encrypt($data, $secret);
-}
-
-/**
- * Returns decrypted string using GoPay decryption method.
- *
- * @param string $data
- * @return string
- */
-function _commerce_gopay_decrypt($data) {
-  $secret = commerce_gopay_setting('secret');
-  return GopayHelper::decrypt($data, $secret);
-}
-
-
-//=============================================================================
-//= CRUD
-//=============================================================================
-
-
-/**
- * Loads GoPay session record by given session ID.
- *
- * @param int $id
- * @return array
- */
-function commerce_gopay_record_find_by_session_id($id) {
-  return db_select('uc_payment_gopay_pn', 'upg')
-    ->fields('upg')
-    ->condition('session_id', $id)
-    ->execute()
-    ->fetchAssoc();
-}
-
-/**
- * Loads (last?) GoPay session record by given order ID.
- *
- * @param int $id
- * @return array
- */
-function commerce_gopay_record_find_by_order_id($id) {
-  // TODO: sort by session_id or load multiple
-  return db_select('uc_payment_gopay_pn', 'upg')
-    ->fields('upg')
-    ->condition('order_id', $id)
-    ->execute()
-    ->fetchAssoc();
-}
-
-/**
- * Saves GoPay record to database.
- *
- * @param array $record
- * @throws RuntimeException
- */
-function commerce_gopay_record_save($record) {
-
-  if (empty($record['session_id']) || empty($record['order_id'])) {
-    throw new RuntimeException('Empty identifier.');
-  }
-
-  if (empty($record['received'])) {
-    $record['received'] = REQUEST_TIME;
-  }
-
-  //drupal_write_record('uc_payment_gopay_pn', $record);
-
-  $allowed = array('order_id', 'session_id', 'product_name', 'variable_symbol', 'total_price', 'session_state', 'result', 'payment_channel', 'received');
-  $record_filtered = array_intersect_key($record, array_flip($allowed));
-
-  db_merge('uc_payment_gopay_pn')
-    ->key(array('session_id' => $record_filtered['session_id']))
-    ->fields($record_filtered)
-    ->execute();
-}
-
-
-//=============================================================================
-//= HELPERS
-//=============================================================================
-
-
-/**
- * Shorten the given string to 128 characters (GoPay limitation).
- *
- * @param string $string
- * @return string
- */
-function _commerce_gopay_productname_shortener($string) {
-  $string = trim($string);
-  if (drupal_strlen($string) > 128) {
-    // 124 = 127 - 3
-    return rtrim(drupal_substr($string, 0, 124)) . '...';
-  }
-  return $string;
-}
-
-/**
- * Returns list of payment channels returned from GoPay.
- *
- * Cached, expires each 10 minutes after the request.
- *
- * @return array of stdClass
- */
-function commerce_gopay_channel_list_all() {
-  $data = cache_get('commerce_gopay_channel_list:all');
-
-  if (!$data) {
-    $data = array();
-    $payment_method_list = GopaySoap::paymentMethodList();
-    foreach ($payment_method_list as &$payment_method) {
-      $pm = new stdClass();
-      $pm->logo = $payment_method->logo;
-      $pm->paymentMethod = $payment_method->paymentMethod;
-      $pm->code = $payment_method->code;
-      $pm->offline = $payment_method->offline;
-      $data[$payment_method->code] = $pm;
-    }
-    // 10 minutes = 600 seconds
-    $expire = REQUEST_TIME + 600;
-    cache_set('commerce_gopay_channel_list:all', $data, $expire);
-  }
-
-  return $data;
-}
-
-/**
- * Returns list of enabled GoPay payment channels.
- *
- * Cached, expires each 10 minutes after the request.
- *
- * @return array of stdClass
- */
-function commerce_gopay_channel_list_enabled() {
-  $data = cache_get('commerce_gopay_channel_list:enabled');
-
-  if (!$data) {
-    $data = array();
-    $payment_method_list = commerce_gopay_channel_list_all();
-    $enabled = commerce_gopay_setting('channels');
-    if ($payment_method_list && $enabled) {
-      $enabled = array_filter($enabled);
-      $data =  array_intersect_key($payment_method_list, $enabled);
-      // 10 minutes = 600 seconds
-      $expire = REQUEST_TIME + 600;
-      cache_set('commerce_gopay_channel_list:enabled', $data, $expire);
-    }
-  }
-
-  return $data;
-}
-
-
-//=============================================================================
-//= THEME
-//=============================================================================
-
-
-/**
- * Renders separated list of payment channels names.
- *
- * @param array $variables
- *   - channels = array of channels objects
- *   - separator = separator between the channels
- * @return type
- */
-function theme_commerce_gopay_channels_separated($variables) {
-  if (empty($variables['channels'])) {
-    $output = t('None');
-  }
-  else {
-    $methods = array();
-    foreach ($variables['channels'] as &$method) {
-      $methods[] = check_plain($method->paymentMethod);
-    }
-    $output = implode($variables['separator'], $methods);
-  }
-  return $output;
-}
-
-/**
- * Renders separated list of payment channels names.
- *
- * @param array $variables
- *   - channels = array of channels objects
- *   - separator = separator between the channels
- * @return type
- */
-function theme_commerce_gopay_channels_icons($variables) {
-  drupal_add_css(drupal_get_path('module', 'commerce_gopay') . '/commerce_gopay.css');
-  if (empty($variables['channels'])) {
-    $output = t('None');
-  }
-  else {
-    $channels = array();
-    foreach ($variables['channels'] as &$method) {
-      $icon = '<span class="gopay-icon ' . check_plain($method->code) . '" title="' . check_plain($method->paymentMethod) . '"></span>';
-      if ($variables['labels']) {
-        $icon .= '&nbsp;' . str_replace(' ', '&nbsp;', check_plain($method->paymentMethod));
-      }
-      $channels[] = $icon;
-    }
-    $output = implode($variables['separator'], $channels);
-  }
-  return $output;
-}
-
-/**
- * Renders separated list of payment channels names wrapped in the frame.
- *
- * Dynamic version of the GoPay pregenerated enabled payment channels.
- *
- * @see theme_commerce_gopay_channels_icons()
- * @see https://www.gopay.cz/styl-go-pay/logo-eshopy
- */
-function theme_commerce_gopay_channels_in_checkout($variables) {
-  $output = '<div class="uc-gopay-channels">';
-  $output .= '<span class="gopay-icon icon-gopay" title="' . t('GoPay includes following payment channels') . '"></span>';
-  $output .= theme('commerce_gopay_channels_icons', $variables);
-  $output .= '</div>';
-  return $output;
 }
