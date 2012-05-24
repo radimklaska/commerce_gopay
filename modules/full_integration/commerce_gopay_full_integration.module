@@ -1,0 +1,221 @@
+<?php
+
+/**
+ * Implements hook_commerce_payment_method_info().
+ */
+function commerce_gopay_full_integration_commerce_payment_method_info() {
+  $payment_methods = array();
+
+  $payment_methods['gopay_full_integration'] = array(
+    'base' => 'commerce_gopay_full_integration',
+    'title' => t('GoPay'),
+    // this title is displayed in Checkout Overview Pane, so we should integrate nice icon :)
+    //'display_title' => t('GoPay')
+    'description' => t('GoPay Full Integration'),
+    'terminal' => FALSE,
+    'offsite' => TRUE,
+    'offsite_autoredirect' => TRUE,
+    'active' => TRUE,
+  );
+    
+  return $payment_methods;
+}
+
+/**
+ * Payment method callback: settings form.
+ */
+function commerce_gopay_full_integration_settings_form($settings = NULL) {
+  return commerce_gopay_settings_form();
+}
+
+/**
+ * Payment method callback: adds a message and CSS to the submission form.
+ */
+function commerce_gopay_full_integration_submit_form($payment_method, $pane_values, $checkout_pane, $order) {
+  $form['gopay_full_integration_information'] = array(
+    '#markup' => '<span class="commerce-gopay-full-integration-info">' . t('(Continue with checkout to complete payment via GoPay.)') . '</span>',
+    '#attached' => array(
+      'css' => array(drupal_get_path('module', 'commerce_gopay') . '/theme/commerce_gopay.css'),
+    ),
+  );
+  
+  return $form;
+}
+
+function commerce_gopay_full_integration_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents) {
+  if ($order->commerce_order_total['und'][0]['currency_code'] != COMMERCE_GOPAY_CURRENCY) {
+    if ($payment_method['settings']['debug'] == 1) {
+      watchdog('commerce_gopay',
+          t('Can\'t use currency other than %currency. <br><br> $_REQUEST = %request <br><br> $payment_method = %payment_method <br><br> $order = %order'),
+          array('%currency'=> COMMERCE_GOPAY_CURRENCY,
+            '%request' => print_r($_REQUEST, TRUE),
+            '%payment_method' => print_r($payment_method, TRUE),
+            '%order' => print_r($order, TRUE)),
+          WATCHDOG_DEBUG);
+    }
+    drupal_set_message(t('Sorry, GoPay allows to pay only in %currency.', array('%currency'=> COMMERCE_GOPAY_CURRENCY)), 'error');
+    return FALSE;
+  }
+}
+
+/**
+ * Payment method callback; generation callback for the payment redirect form.
+ */
+function commerce_gopay_full_integration_redirect_form($form, &$form_state, $order, $payment_method) {
+  global $user;
+
+  $settings = $payment_method['settings'];
+
+  if ($settings['debug']) {
+    watchdog('commerce_gopay', "@variable", array(
+      '@variable' => print_r(array(
+        'TIME' => date('H:i:s d.m.Y', REQUEST_TIME), 
+        '$form' => $form, '$form_state' => $form_state, 
+        '$order' => $order, '$payment_method' => $payment_method
+        ), 1) ), WATCHDOG_DEBUG);
+  }
+
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  $currency_code = $wrapper->commerce_order_total->currency_code->value();
+  $total_price = $wrapper->commerce_order_total->amount->value();
+  $variable_symbol = commerce_gopay_variable_symbol($order);
+  $customer_name = $wrapper->commerce_customer_billing->commerce_customer_address->name_line->value();
+
+  $eshop_go_id = $settings['goid'];
+  $product_name = t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE)))));
+  $success_url = url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));
+  $failed_url = url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));
+  $secret = $settings['secret'];
+  $payment_channel = $settings['preselect_channel'];
+
+  $payment_channels = array();
+  
+  foreach ($settings['enabled_channels'] as $enabled_channel_id => $enabled_channel_enabled) {
+    if ($enabled_channel_enabled) {
+      $payment_channels[] = $enabled_channel_id;
+    }
+  }
+  
+  $payment_session_id = GopaySoap::createEshopPayment($eshop_go_id, $product_name, $total_price, $variable_symbol, $success_url, $failed_url, $secret, $payment_channels);
+
+  if ($settings['debug']) {
+    watchdog('commerce_gopay', "payment_session_id: @payment_session_id<br />order_id: @order_id", array('@payment_session_id' => $payment_session_id, '@order_id' => $order->order_id), WATCHDOG_DEBUG);
+  }
+
+  if ($payment_session_id > 0) {
+    $ipn = array();
+    $ipn['order_id'] = $order->order_id;
+    $ipn['variable_symbol'] = $variable_symbol;
+    $ipn['payment_session_id'] = $payment_session_id;
+    $ipn['product_name'] = $product_name;
+    $ipn['total_price'] = $total_price;
+    $ipn['payment_status'] = GopayHelper::WAITING;
+    $ipn['payment_method'] = $payment_method['instance_id'];
+    $ipn['test_ipn'] = ($settings['server'] == GopayConfig::TEST);
+    
+    commerce_gopay_ipn_save($ipn);
+    
+    $encryptedSignature = GopayHelper::encrypt(
+      GopayHelper::hash(
+        GopayHelper::concatPaymentSession(
+            (float) $eshop_go_id,
+            (float) $payment_session_id,
+            $secret)
+      ), $secret);
+    
+    $form['#action'] = commerce_gopay_full_integration_server_url($settings['server']) 
+        . "?sessionInfo.eshopGoId=" . $eshop_go_id 
+        . "&sessionInfo.paymentSessionId=" . $payment_session_id 
+        . "&sessionInfo.encryptedSignature=" . $encryptedSignature 
+        . "&paymentChannel=" . $payment_channel;
+
+    if ($settings['debug']) {
+      watchdog('commerce_gopay', "GoPay redirect: @variable", array('@variable' => $form['#action']), WATCHDOG_DEBUG);
+    }
+
+    $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Proceed to GoPay'),
+    );
+  }
+  
+  return $form;
+}
+
+function commerce_gopay_full_integration_ipn_validate(&$order, $payment_method, &$ipn, $returned_ipn) {
+  $is_valid_payment = GopayHelper::checkPaymentIdentity(
+    (float) $returned_ipn['go_id'],
+    (float) $returned_ipn['payment_session_id'],
+    $returned_ipn['variable_symbol'],
+    $returned_ipn['encrypted_signature'],
+    (float) $payment_method['settings']['goid'],
+    $ipn['variable_symbol'],
+    $payment_method['settings']['secret']);
+
+  if (!$is_valid_payment) {
+    watchdog('commerce_gopay', 'IPN with invalid signature received and ignored.', array(), WATCHDOG_WARNING);
+    return FALSE;
+  }
+  
+  return TRUE;
+}
+
+/**
+ * Process an IPN once it's been validated.
+ */
+function commerce_gopay_full_integration_ipn_process(&$order, $payment_method, &$ipn) {
+  $wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+  $total_price = $wrapper->commerce_order_total->amount->value();
+
+  $result = GopaySoap::isEshopPaymentDone(
+    (float) $ipn['payment_session_id'], 
+    (float) $payment_method['settings']['goid'],
+    $ipn['variable_symbol'],
+    (int) $total_price,
+    $ipn['product_name'],
+    $payment_method['settings']['secret']);
+
+  if ($result['code'] == GopayHelper::FAILED) {
+    watchdog('commerce_gopay', 'There\'s been error while checking payment status.', array(), WATCHDOG_NOTICE);
+    return FALSE;
+  }
+  else {
+    $ipn['payment_status'] = $result['code'];
+  }
+  
+  // If this is a prior authorization capture IPN for which we've already
+  // created a transaction.
+  if (!empty($ipn['transaction_id']) && $prior_ipn = commerce_gopay_ipn_load($ipn['payment_session_id'])) {
+    // Load the prior IPN's transaction and update that with the capture values.
+    $transaction = commerce_payment_transaction_load($prior_ipn['transaction_id']);
+  }
+  else {
+    // Create a new payment transaction for the order.
+    $transaction = commerce_payment_transaction_new('gopay_full_integration', $order->order_id);
+    $transaction->uid = $order->uid;
+    $transaction->instance_id = $payment_method['instance_id'];
+  }
+
+  $transaction->instance_id = $payment_method['instance_id'];
+  $transaction->remote_id = $ipn['order_id'];
+  $transaction->amount = $ipn['total_price'];
+  $transaction->currency_code = COMMERCE_GOPAY_CURRENCY;
+  $transaction->payload[REQUEST_TIME] = $ipn;
+
+  // Set the transaction's statuses based on the IPN's payment_status.
+  $transaction->remote_status = $ipn['payment_status'];
+  
+  commerce_gopay_feedback_status($ipn, $transaction);
+
+  commerce_payment_transaction_save($transaction);
+  $ipn['transaction_id'] = $transaction->transaction_id;
+  
+  return TRUE;
+}
+
+function commerce_gopay_full_integration_server_url($server) {
+  GopayConfig::init($server);
+  return GopayConfig::fullIntegrationURL($server);
+}
