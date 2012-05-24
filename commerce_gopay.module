@@ -1,120 +1,14 @@
 <?php
 
 /**
- * @file
- * Commerce GoPay - Drupal Commerce payment module.
- *
- * @author Vojtěch Kusý <wojtha@gmail.com> - http://drupal.org/project/uc_gopay
- * @author Radim Klaška <radim@klaska.net> - http://drupal.org/project/commerce_gopay (port from uc_gopay)
- *
- * @copyright Vojtěch Kusý, Atomic Ant Ltd. http://atomicant.co.uk
- * @copyright Radim Klaška, http://klaska.net
- *
- * uc_gopay development sponsored by Štěpán Korčák, http://stepankorcak.cz
- */
-
-
-//=============================================================================
-//= CONSTANTS
-//=============================================================================
-
-
-/**
  * GoPay provider currently accepts transactions in CZK only.
  */
-define('commerce_gopay_CURRENCY', 'CZK');
-
-/**
- * Name of the payment method.
- */
-define('commerce_gopay_STANDARD_PAYMENT_METHOD', 'gopay');
+define('COMMERCE_GOPAY_CURRENCY', 'CZK');
 
 /**
  * Registration email.
  */
-// define('commerce_gopay_REGISTRATION_EMAIL', 'gopay@stepankorcak.cz');
-//ToDo: Before going live, check if I can actualy do this:
-define('commerce_gopay_REGISTRATION_EMAIL', 'gopay@klaska.net'); 
-
-
-//=============================================================================
-//= HOOKS
-//=============================================================================
-
-
-/**
- * Implements hook_commerce_payment_method_info().
- */
-function commerce_gopay_commerce_payment_method_info() {
-  $payment_methods = array();
-
-  // ToDo:
-  // $icons = commerce_paypal_icons();
-  // $display_title = t('!logo PayPal - pay securely without sharing your financial information', array('!logo' => $icons['paypal']));
-  // $display_title .= '<div class="commerce-paypal-icons"><span class="label">' . t('Includes:') . '</span>' . implode(' ', $icons) . '</div>';
-
-  $payment_methods['gopay'] = array(
-    // base (optional):
-    // string used as the base for callback names, each of which will be defaulted to [base]_[callback] unless explicitly set;
-    // defaults to the method_id if not set.
-    'base' => 'commerce_gopay',
-    'title' => t('GoPay'), 
-    // 'display_title' => $display_title,
-    'description' => t('GoPay Website Payments Standard'),
-    // terminal (optional):
-    // TRUE or FALSE indicating whether or not payments can be processed via this payment method
-    // through the administrative payment terminal on an order’s Payment tab;
-    // defaults to TRUE.
-    'terminal' => FALSE,
-    // offsite (optional):
-    // TRUE or FALSE indicating whether or not the customer must be redirected offsite
-    // to put in their payment information; used specifically by the off-site payment redirect checkout pane;
-    // defaults to FALSE.
-    'offsite' => TRUE,
-    // offsite_autoredirect (optional):
-    // TRUE or FALSE indicating whether or not the customer should be automatically redirected
-    // to an offsite payment site on the payment step of checkout;
-    // defaults to FALSE.
-    'offsite_autoredirect' => TRUE,
-    // active (optional): 
-    // TRUE of FALSE indicating whether or not the default payment method rule configuration
-    // for this payment method should be enabled by default;
-    // defaults to FALSE 
-    'active' => TRUE,
-    // callbacks (optional):
-    // an array of callback function names for the various types of callback required for all the payment method operations, arguments per callback in parentheses:
-      // settings_form:
-      // the name of the CALLBACK_commerce_payment_method_settings_form() of the payment method. 
-      // submit_form:
-      // the name of the CALLBACK_commerce_payment_method_submit_form() of the payment method. 
-      // submit_form_validate:
-      // the name of the CALLBACK_commerce_payment_method_submit_form_validate() of the payment method. 
-      // submit_form_submit:
-      // the name of the CALLBACK_commerce_payment_method_submit_form_submit() of the payment method. 
-      // redirect_form:
-      // the name of the CALLBACK_commerce_payment_method_redirect_form() of the payment method. 
-      // redirect_form_validate:
-      // the name of the CALLBACK_commerce_payment_method_redirect_form_validate() of the payment method. 
-      // redirect_form_submit:
-      // the name of the CALLBACK_commerce_payment_method_redirect_form_submit() of the payment method. 
-    // file (optional):
-    // the filepath of an include file relative to the method's module containing the callback functions for this method,
-    // allowing modules to store payment method code in include files that only get loaded when necessary (like the menu item file property).
-  );
-    
-  return $payment_methods;
-}
-
-/**
-* Implements hook_init();
-*/
-function commerce_gopay_init() {
-  //TODO: move this somewhere else OR get value from $settings
-  GopayConfig::init(GopayConfig::TEST);
-  //dpm(_settings());
-  dpm(variable_get('commerce_gopay_dev'), 'dev init variable');
-  
-}
+define('COMMERCE_GOPAY_REGISTRATION_EMAIL', 'gopay@klaska.net'); 
 
 /**
 * Implements hook_menu();
@@ -122,24 +16,8 @@ function commerce_gopay_init() {
 function commerce_gopay_menu() {
   $items = array();
 
-  $items['checkout/gopay/payment_success'] = array(
-    'title' => 'Payment success',
-    'page callback' => 'commerce_gopay_payment_success',
-    'access arguments' => array('access content'),
-    'type' => MENU_CALLBACK,
-    'file' => 'commerce_gopay.pages.inc',
-  );
-
-  $items['checkout/gopay/payment_failed'] = array(
-    'title' => 'Payment failed',
-    'page callback' => 'commerce_gopay_payment_failed',
-    'access arguments' => array('access content'),
-    'type' => MENU_CALLBACK,
-    'file' => 'commerce_gopay.pages.inc',
-  );
-
   $items['soap/gopay/notify'] = array(
-    'title' => 'GoPay SOAP payment',
+    'title' => 'GoPay SOAP payment notification',
     'page callback' => 'commerce_gopay_soap_notify',
     'access arguments' => array('access content'),
     'type' => MENU_CALLBACK,
@@ -164,6 +42,8 @@ function commerce_gopay_menu() {
  *
  * Returns form elements for the payment method's settings form included
  * as part of the payment method's enabling action in Rules
+ *
+ * == NEEDS REVIEW!!!
  */
 function commerce_gopay_settings_form($settings = NULL) {
   $form = array();
@@ -318,9 +198,11 @@ function commerce_gopay_settings_form($settings = NULL) {
   if ($settings['server'] === GopayConfig::TEST) {
     drupal_set_message(t("Because you are using debug mode, all GoPay transaction will pass."), 'warning');
   }
+  
   if (!$settings['enabled_channels']) {
     drupal_set_message(t("GoPay payment method is enabled on checkout, but there is no allowed payment channels. Allow at least one channel to get rid of this warning." . ' ' . l(t('Payment channels list'),'admin/commerce/config/payment-methods/manage/commerce_payment_gopay/list_methods')), 'warning');
   }
+  
   if (!($settings['goid'] && $settings['secret'])) {
     drupal_set_message(t("GoPay payment method is enabled, but GoPay ID or secret key isn't provided. Please provide GoPay ID and shared secret to get rid of this warning."), 'error');
   }
@@ -329,239 +211,85 @@ function commerce_gopay_settings_form($settings = NULL) {
 }
 
 /**
- * Payment method callback: adds a message and CSS to the submission form.
- */
-function commerce_gopay_submit_form($payment_method, $pane_values, $checkout_pane, $order) {  
-  $form['gopay_information'] = array(
-    '#markup' => '<span class="commerce-paypal-wps-info">' . t('(Continue with checkout to complete payment via GoPay.)') . '</span>',
-    '#attached' => array(
-      'css' => array(drupal_get_path('module', 'commerce_gopay') . '/theme/commerce_gopay.css'),
-    ),
-  );
-  
-  return $form;
-}
-
-
-function commerce_gopay_submit_form_validate($payment_method, $pane_form, $pane_values, $order, $form_parents) {
-  if ($order->commerce_order_total['und'][0]['currency_code'] != commerce_gopay_CURRENCY) {
-    if ($payment_method['settings']['debug'] == 1) {
-      watchdog('commerce_gopay',
-          t('Can\'t use currency other than %currency. <br><br> $_REQUEST = %request <br><br> $payment_method = %payment_method <br><br> $order = %order'),
-          array('%currency'=> commerce_gopay_CURRENCY,
-            '%request' => print_r($_REQUEST, TRUE),
-            '%payment_method' => print_r($payment_method, TRUE),
-            '%order' => print_r($order, TRUE)),
-          WATCHDOG_DEBUG);
-    }
-    drupal_set_message(t('Sorry, GoPay allows to pay only in %currency.', array('%currency'=> commerce_gopay_CURRENCY)), 'error');
-    return FALSE;
-  }
-}
-
-
-/**
- * Payment method callback: redirect form, a wrapper around the module's general
- *   use function for building a WPS form.
- */
-
-function commerce_gopay_redirect_form($form, &$form_state, $order, &$payment_method) {
-  
-  // TODO: Why is $payment_method['settings'] empty?
-  // Return an error if the enabling action's settings haven't been configured.
-//  if (empty($payment_method['settings']['goid']) OR empty($payment_method['settings']['secret']) OR ($payment_method['settings']['server'] == GopayConfig::TEST)) {
-//    if ($payment_method['settings']['debug'] == 1) {
-//      watchdog('commerce_gopay',
-//          t('Tried to continue to payment, but GoPay is not configured for use. No GoPay ID or Secret has been specified. <br><br> $payment_method = %payment_method <br><br> $order = %order'),
-//          array('%payment_method' => print_r($payment_method, TRUE),
-//            '%order' => print_r($order, TRUE)),
-//          WATCHDOG_DEBUG);
-//    }
-//    drupal_set_message(t('GoPay is not configured for use. No GoPay ID or Secret has been specified.'), 'error');
-//    return FALSE;
-//  }
-
-//  $settings = array(
-//    // Return to the previous page when payment is canceled
-//    'cancel_return' => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
-//
-//    // Return to the payment redirect page for processing successful payments
-//    'return' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
-//
-//    // Specify the current payment method instance ID in the notify_url
-//    'payment_method' => $payment_method['instance_id'],
-//  );
-//  
-//  $payment_method['setting'] + $settings;
-  
-  variable_set('commerce_gopay_dev', array('TIME' => date('H:i:s d.m.Y', REQUEST_TIME), '$form' => $form, '$form_state' => $form_state, '$order' => $order, '$payment_method' => $payment_method));
-    
-  global $user;
-  $wrapper = entity_metadata_wrapper('commerce_order', $order);
-
-  // Get financial info
-  $currency_code = $wrapper->commerce_order_total->currency_code->value();
-  $amount = $wrapper->commerce_order_total->amount->value();
-  $customer_name = $wrapper->commerce_customer_billing->commerce_customer_address->name_line->value();
-
-//  // Build the data array that will be translated into hidden form values.
-//  // NOTE: keys should be uppercase for the SHA-1 security string
-//  $data = array(
-//    // General parameters
-//    'PSPID' => $settings['pspid'],
-//    'ORDERID' => $order->order_number,
-//    'AMOUNT' => $amount,
-//    'CURRENCY' => $currency_code,
-//    'LANGUAGE' => _commerce_ogone_get_language_code($settings),
-//    'CN' => $customer_name,
-//    'EMAIL' => $order->mail,
-//
-//    // Layout
-//    'TITLE' => t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE))))),
-//
-//    // Feedback URLs
-//    'ACCEPTURL' => $settings['return'],
-//    'DECLINEURL' => $settings['return'],
-//    'EXCEPTIONURL' => $settings['return'],
-//    'CANCELURL' => $settings['cancel_return'],
-//  );
-//
-//  // Allow modules to add or alter the data sent to Ogone before signing.
-//  drupal_alter('commerce_ogone_data', $data, $order, $settings);
-//
-//  // NOTE: data should be ordered alphabetically for the SHA-1 string
-//  ksort($data);
-//
-//  // Build the Ogone redirection URL.
-//  $url = variable_get('commerce_ogone_provider_url', 'https://secure.ogone.com/ncol/');
-//  $url .=  $settings['account'] . '/orderstandard_utf8.asp';
-//  $form['#action'] = $url;
-//
-//  // Generate SHA-1 security string & add hidden parameters to form
-//  $sha1_sig = '';
-//  $sha1suffix = $settings['sha_in'];
-//  foreach ($data as $name => $value) {
-//    if (!empty($value)) {
-//      $value = trim($value);
-//      // Build the SHA-1 string from all filled in parameters
-//      $sha1_sig .= $name . '=' . $value . $sha1suffix;
-//      // Add the value as a hidden form element
-//      $form[$name] = array('#type' => 'hidden', '#value' => $value);
-//    }
-//  }
-//  // Add the calculated SHA-1 string
-//  $form['SHASign'] = array('#type' => 'hidden', '#value' => sha1($sha1_sig));
-
-  $form['#action'] = 'http://klaska.net';
-  $form['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Proceed with payment'),
-  );
-
-  return $form;
-}
-
-
-///**
-// * Payment method callback: redirect form, a wrapper around the module's general
-// *   use function for building a WPS form.
-// */
-//function commerce_gopay_redirect_form_submit($order, $payment_method) {
-//  
-//  variable_set('commerce_gopay_dev', array('TIME' => REQUEST_TIME, '$order' => $order, '$payment_method' => $payment_method));
-//  
-//  return $form;
-//}
-
-
-/**
- * Builds a Website Payments Standard form from an order object.
+ * Loads a stored IPN by ID.
  *
- * @param $order
- *   The fully loaded order being paid for.
- * @param $settings
- *   An array of settings used to build out the form.
+ * @param $id
+ *   The ID of the IPN to load.
+ * @param $type
+ *   The type of ID you've specified, either the serial numeric ipn_id or the
+ *     actual GoPay payment_session_id. Defaults to payment_session_id.
+ *
  * @return
- *   A renderable form array.
+ *   The original IPN with some meta data related to local processing.
  */
-function commerce_gopay_order_form($form, &$form_state, $order, $settings) {
-  $wrapper = entity_metadata_wrapper('commerce_order', $order);
-
-  $currency_code = $wrapper->commerce_order_total->currency_code->value();
-  $amount = $wrapper->commerce_order_total->amount->value();
-
-  // Ensure a default value for the payment_method setting.
-  $settings += array('payment_method' => '');
-
-  // Build the data array that will be translated into hidden form values.
-  $data = array(
-    // Specify the checkout experience to present to the user.
-    'cmd' => '_cart',
-
-    // Signify we're passing in a shopping cart from our system.
-    'upload' => 1,
-
-    // The store's PayPal e-mail address
-    'business' => $settings['business'],
-
-    // The path PayPal should send the IPN to
-    'notify_url' => commerce_paypal_ipn_url($settings['payment_method']),
-
-    // Set the correct character set
-    'charset' => 'utf-8',
-
-    // Do not display a comments prompt at PayPal
-    'no_note' => 1,
-
-    // Do not display a shipping address prompt at PayPal
-    'no_shipping' => 1,
-
-    // Return to the review page when payment is canceled
-    'cancel_return' => $settings['cancel_return'],
-
-    // Return to the payment redirect page for processing successful payments
-    'return' => $settings['return'],
-
-    // Return to this site with payment data in the POST
-    'rm' => 2,
-
-    // The type of payment action PayPal should take with this order
-    'paymentaction' => $settings['payment_action'],
-
-    // Set the currency and language codes
-    'currency_code' => in_array($currency_code, array_keys(commerce_paypal_wps_currencies())) ? $currency_code : $settings['currency_code'],
-    'lc' => $settings['language'],
-
-    // Use the timestamp to generate a unique invoice number
-    'invoice' => commerce_paypal_ipn_invoice($order),
-
-    // Define a single item in the cart representing the whole order
-    'amount_1' => round(commerce_currency_amount_to_decimal($amount, $currency_code), 2),
-    'item_name_1' => t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE))))),
-    'on0_1' => t('Product count'),
-    'os0_1' => commerce_line_items_quantity($wrapper->commerce_line_items, commerce_product_line_item_types()),
-  );
-
-  $form['#action'] = commerce_paypal_wps_server_url($settings['server']);
-
-  foreach ($data as $name => $value) {
-    if (!empty($value)) {
-      $form[$name] = array('#type' => 'hidden', '#value' => $value);
-    }
-  }
-
-  $form['submit'] = array(
-    '#type' => 'submit',
-    '#value' => t('Proceed to GoPay'),
-  );
-
-  return $form;
+function commerce_gopay_ipn_load($id, $type = 'payment_session_id') {
+  return db_select('commerce_gopay_ipn', 'cgi')
+    ->fields('cgi')
+    ->condition('cgi.' . $type, $id)
+    ->execute()
+    ->fetchAssoc();
 }
 
-// TODO:
-//function commerce_gopay_requirements($phase) {
-//  // http://api.drupal.org/api/drupal/modules!system!system.api.php/function/hook_requirements/7
-//}
+/**
+ * Saves an IPN with some meta data related to local processing.
+ *
+ * @param $ipn
+ *   An IPN array with additional parameters for the order_id and Commerce
+ *     Payment transaction_id associated with the IPN.
+ *
+ * @return
+ *   The operation performed by drupal_write_record() on save; since the IPN is
+ *     received by reference, it will also contain the serial numeric ipn_id
+ *     used locally.
+ */
+function commerce_gopay_ipn_save(&$ipn) {
+  if (!empty($ipn['ipn_id']) && commerce_gopay_ipn_load($ipn['payment_session_id'])) {
+    $ipn['changed'] = REQUEST_TIME;
+
+    return drupal_write_record('commerce_gopay_ipn', $ipn, 'ipn_id');
+  }
+  else {
+    $ipn['created'] = REQUEST_TIME;
+    $ipn['changed'] = REQUEST_TIME;
+
+    return drupal_write_record('commerce_gopay_ipn', $ipn);
+  }
+
+  return $ipn;
+}
+
+/**
+ * Deletes a stored IPN by ID.
+ *
+ * @param $id
+ *   The ID of the IPN to delete.
+ * @param $type
+ *   The type of ID you've specified, either the serial numeric ipn_id or the
+ *     actual GoPay payment_session_id. Defaults to payment_session_id.
+ */
+function commerce_gopay_ipn_delete($id, $type = 'payment_session_id') {
+  db_delete('commerce_gopay_ipn')
+    ->condition($type, $id)
+    ->execute();
+}
+
+/**
+ * Generate a unique variable symbol based on the Order ID and timestamp.
+ */
+function commerce_gopay_variable_symbol($order) {
+  return $order->order_id . '-' . REQUEST_TIME;	
+}
+
+/**
+ * Payment method callback: redirect form submission.
+ *
+ * NEEDS REVIEW!!!
+ */
+function commerce_gopay_redirect_form_submit($order, $payment_method) {
+  // There is no Rule action to update the status per payment method so we are
+  // updating the order status here.
+  commerce_order_status_update($order, 'processing');
+}
 
 /**
  * Implements hook_mail().
@@ -569,29 +297,27 @@ function commerce_gopay_order_form($form, &$form_state, $order, $settings) {
 function commerce_gopay_mail($key, &$message, $params) {
   switch ($key) {
     case 'register':
-    $message['subject'] = 'Registration: ' . check_plain($params['eshop_url']);
-    if ($params['send_copy']) {
-      $message['headers']['bcc'] = $params['email'];
-    }
-    $message['body'][] = 'GOID: ' . ($params['goid'] ? check_plain($params['goid']) : '--') . "\n" .
+      $message['subject'] = 'Registration: ' . check_plain($params['eshop_url']);
+    
+      if ($params['send_copy']) {
+        $message['headers']['bcc'] = $params['email'];
+      }
+    
+      $message['body'][] = 'GOID: ' . ($params['goid'] ? check_plain($params['goid']) : '--') . "\n" .
                          'URL: ' . check_plain($params['eshop_url']) . "\n" .
                          'EMAIL: ' . check_plain($params['email']) . "\n" .
                          'NAME: ' . check_plain($params['first_name']) . "\n" .
                          'SURNAME: ' . check_plain($params['second_name']) . "\n\n" .
                          'REGISTERED: ' . format_date($params['registered'], 'custom', 'Y-m-d H:i:s') . ' / ' . check_plain($params['registered']) . "\n" .
                          'STATUS: ' . (uc_gopay_setting('registration') ? 'UPDATE' : 'NEW');
-    break;
+      break;
   }
 }
 
-
-//=============================================================================
-//= Module functions
-//=============================================================================
-
-
 /**
  * Returns the default settings for the GoPay payment method.
+ *
+ * NEEDS REVIEW!!!
  */
 function commerce_gopay_default_settings() {
   return array(
@@ -600,7 +326,7 @@ function commerce_gopay_default_settings() {
     'success_url' => url('checkout/gopay/payment_success', array('absolute' => TRUE)),
     'failed_url' => url('checkout/gopay/payment_failed', array('absolute' => TRUE)),
     'gateway' => 'soap',
-    'debug' => TRUE, // Not sure. ToDo: Consult. Maybe set warning msg...
+    'debug' => TRUE,
     'server' => GopayConfig::TEST,
     'preferred_channel' => 'cz_gp_w',
     'all_channels' => '',

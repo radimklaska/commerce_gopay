@@ -411,6 +411,7 @@ class GopaySoap {
 
       return $paymentMethods->paymentMethods;
     } catch (SoapFault $f) {
+    dpm($f, 'paymentMethodList - SoapFault');
       /*
        * Chyba v komunikaci s GoPay serverem
        */
