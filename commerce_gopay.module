@@ -280,15 +280,47 @@ function commerce_gopay_variable_symbol($order) {
   return $order->order_id . '-' . REQUEST_TIME;	
 }
 
+function commerce_gopay_payment_info_from_url() {
+  if (!isset($_GET['paymentSessionId'])) {
+    return array();
+  }
+  
+  return array(
+    'payment_session_id' => $_GET['paymentSessionId'],
+    'go_id' => $_GET['eshopGoId'],
+    'variable_symbol' => $_GET['variableSymbol'],
+    'encrypted_signature' => $_GET['encryptedSignature'],
+  );
+}
+
 /**
- * Payment method callback: redirect form submission.
- *
- * NEEDS REVIEW!!!
+ * Get a payment status and message based on the GoPay status.
+ * 
+ * @param $ipn
+ *   Received GoPay status ID.
  */
-function commerce_gopay_redirect_form_submit($order, $payment_method) {
-  // There is no Rule action to update the status per payment method so we are
-  // updating the order status here.
-  commerce_order_status_update($order, 'processing');
+function commerce_gopay_feedback_status($ipn, &$transaction) {
+  switch ($ipn['payment_status']) {
+    case 'PAYMENT_DONE':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+      $transaction->message = t("The payment has completed.");
+      break;
+
+    case 'CANCELED':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      $transaction->message = t('The payment was canceled.');
+      break;
+
+    case 'TIMEOUTED':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
+      $transaction->message = t('The payment was canceled.');
+      break;
+
+    case 'WAITING':
+      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
+      $transaction->message = t('Pending.');
+      break;
+  }
 }
 
 /**
