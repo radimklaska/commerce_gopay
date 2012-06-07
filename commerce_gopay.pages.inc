@@ -69,36 +69,6 @@ function commerce_gopay_soap_notify() {
   commerce_gopay_soap_notify_failed();
 }
 
-/**
- * Get a payment status and message based on the GoPay status.
- * 
- * @param $ipn
- *   Received GoPay status ID.
- */
-function commerce_gopay_feedback_status($ipn, &$transaction) {
-  switch ($ipn['payment_status']) {
-    case 'PAYMENT_DONE':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
-      $transaction->message = t("The payment has completed.");
-      break;
-
-    case 'CANCELED':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-      $transaction->message = t('The payment was canceled.');
-      break;
-
-    case 'TIMEOUTED':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_FAILURE;
-      $transaction->message = t('The payment was canceled.');
-      break;
-
-    case 'WAITING':
-      $transaction->status = COMMERCE_PAYMENT_STATUS_PENDING;
-      $transaction->message = t('Pending.');
-      break;
-  }
-}
-
 function commerce_gopay_soap_notify_failed() {
   header('HTTP/1.1 500 Internal Server Error');
   exit(0);
