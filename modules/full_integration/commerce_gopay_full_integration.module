@@ -83,11 +83,16 @@ function commerce_gopay_full_integration_redirect_form($form, &$form_state, $ord
   $customer_name = $wrapper->commerce_customer_billing->commerce_customer_address->name_line->value();
 
   $eshop_go_id = $settings['goid'];
-  $product_name = t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE)))));
-  $success_url = url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));
-  $failed_url = url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));
   $secret = $settings['secret'];
   $payment_channel = $settings['preselect_channel'];
+
+  $payment = array();
+
+  $payment['product_name'] = t('Order @order_number at @store', array('@order_number' => $order->order_number, '@store' => variable_get('site_name', url('<front>', array('absolute' => TRUE)))));
+  $payment['success_url'] = url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));
+  $payment['failed_url'] = url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE));  
+
+  drupal_alter('commerce_gopay_full_integration_redirect_form', $payment);
 
   $payment_channels = array();
   
@@ -97,7 +102,7 @@ function commerce_gopay_full_integration_redirect_form($form, &$form_state, $ord
     }
   }
   
-  $payment_session_id = GopaySoap::createEshopPayment($eshop_go_id, $product_name, $total_price, $variable_symbol, $success_url, $failed_url, $secret, $payment_channels);
+  $payment_session_id = GopaySoap::createEshopPayment($eshop_go_id, $payment['product_name'], $total_price, $variable_symbol, $payment['success_url'], $payment['failed_url'], $secret, $payment_channels);
 
   if ($settings['debug']) {
     watchdog('commerce_gopay', "payment_session_id: @payment_session_id<br />order_id: @order_id", array('@payment_session_id' => $payment_session_id, '@order_id' => $order->order_id), WATCHDOG_DEBUG);
@@ -108,7 +113,7 @@ function commerce_gopay_full_integration_redirect_form($form, &$form_state, $ord
     $ipn['order_id'] = $order->order_id;
     $ipn['variable_symbol'] = $variable_symbol;
     $ipn['payment_session_id'] = $payment_session_id;
-    $ipn['product_name'] = $product_name;
+    $ipn['product_name'] = $payment['product_name'];
     $ipn['total_price'] = $total_price;
     $ipn['payment_status'] = GopayHelper::WAITING;
     $ipn['payment_method'] = $payment_method['instance_id'];
@@ -210,9 +215,110 @@ function commerce_gopay_full_integration_ipn_process(&$order, $payment_method, &
   commerce_gopay_feedback_status($ipn, $transaction);
 
   commerce_payment_transaction_save($transaction);
+  
   $ipn['transaction_id'] = $transaction->transaction_id;
+  commerce_gopay_ipn_save($ipn);
   
   return TRUE;
+}
+
+/**
+ * Mea maxima culpa.
+ * 
+ * @todo refactor to commerce_gopay.module
+ * @todo more informative messages for user
+ */
+function commerce_gopay_full_integration_commerce_checkout_router($order, $checkout_page) {
+  $returned_ipn = commerce_gopay_payment_info_from_url();
+  
+  if ($checkout_page['page_id'] == 'payment' && isset($returned_ipn['payment_session_id'])) {
+    $failed_url = 'checkout/' . $order->order_id . '/' . $checkout_page['prev_page'];
+    $failed_url_options = array();
+    
+    // so so so bad....
+    if ($_SESSION['iframe']) {
+      $failed_url_options['query'] = array('iframe' => 1);
+    }
+    
+    watchdog('commerce_gopay', "User redirected from gateway", array(), WATCHDOG_DEBUG);
+    
+    // @todo rethink/refactor - duplicated code
+    $ipn = commerce_gopay_ipn_load($returned_ipn['payment_session_id']);
+    
+    if ($ipn === FALSE) {
+      watchdog('commerce_gopay', "Couldn't load IPN for session id @payment_session_id.", array('@payment_session_id' => $returned_ipn['payment_session_id']), WATCHDOG_WARNING);
+      drupal_set_message(t('Something went wrong while processing your payment.'), 'error');
+      commerce_payment_redirect_pane_previous_page($order);
+      drupal_goto($failed_url, $failed_url_options);
+    }
+    
+    if ($ipn['order_id'] != $order->order_id) {
+      watchdog('commerce_gopay', "Passed order id did not match IPN order id for session id @payment_session_id.", array('@payment_session_id' => $returned_ipn['payment_session_id']), WATCHDOG_WARNING);
+      drupal_set_message(t('Something went wrong while processing your payment.'), 'error');
+      commerce_payment_redirect_pane_previous_page($order);
+      drupal_goto($failed_url, $failed_url_options);
+    }
+    
+    if (!empty($ipn['payment_method'])) {
+      $payment_method = commerce_payment_method_instance_load($ipn['payment_method']);
+    }
+    else {
+      watchdog('commerce_gopay', "Couldn't load payment method for IPN with session id @payment_session_id.", array('@payment_session_id' => $returned_ipn['payment_session_id']), WATCHDOG_WARNING);
+      drupal_set_message(t('Something went wrong while processing your payment.'), 'error');
+      commerce_payment_redirect_pane_previous_page($order);
+      drupal_goto($failed_url, $failed_url_options);
+    }
+    
+    if (!commerce_gopay_full_integration_ipn_validate($order, $payment_method, $ipn, $returned_ipn)) {
+      drupal_set_message(t('Something went wrong while processing your payment.'), 'error');
+      commerce_payment_redirect_pane_previous_page($order);
+      drupal_goto($failed_url, $failed_url_options);
+    }
+    
+    if (!commerce_gopay_full_integration_ipn_process($order, $payment_method, $ipn)) {
+      drupal_set_message(t('Something went wrong while processing your payment.'), 'error');
+      commerce_payment_redirect_pane_previous_page($order);
+      drupal_goto($failed_url, $failed_url_options);
+    }
+    
+    if (commerce_gopay_full_integration_result($ipn)) {
+      commerce_payment_redirect_pane_next_page($order);
+      
+      $success_url = 'checkout/' . $order->order_id . '/' . $checkout_page['next_page'];
+      $query = array();
+      
+      // so so so bad....
+      if ($_GET['iframe']) {
+        $query = array('iframe' => 1);
+      }
+      
+      drupal_goto($success_url, array('query' => $query));
+    }
+    else {
+      drupal_set_message(t('You cancelled your payment or something went wrong while processing your payment.'), 'error');
+      commerce_payment_redirect_pane_previous_page($order);
+      drupal_goto($failed_url, $failed_url_options);
+    }
+  }
+}
+
+/**
+ * @todo rename
+ * @param type $ipn
+ * @return boolean 
+ */
+function commerce_gopay_full_integration_result($ipn) {
+  switch ($ipn['payment_status']) {
+    case 'PAYMENT_DONE':
+    case 'WAITING':
+      return TRUE;
+      break;
+
+    case 'CANCELED':
+    case 'TIMEOUTED':
+    default:
+      return FALSE;
+  }
 }
 
 function commerce_gopay_full_integration_server_url($server) {
